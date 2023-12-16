@@ -13,7 +13,7 @@ from grid_map_env.utils import sample_start_and_goal
 
 
 def play_with_keyboard(map_file_path, start_pos=None, goal_pos=None, store=False, store_path="~/",step_limit=1000):
-    """
+    """      W
     Control the robot to complete a navigation task by keyboard.
     """
     if start_pos == None or goal_pos == None:
