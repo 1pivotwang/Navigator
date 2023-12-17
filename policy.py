@@ -109,8 +109,8 @@ class Policy:
 
     #这里先实现老师给的伪代码,reward未定
     def simulate(self,house_map,robot_state,d): #d is the remaining steps for one rollout,第一个想法，不采取离散的reward，直接采取一整次rollout的reward，第二个想法，依照老师的代码，但是拟合出reward，利用差分计算出单步reward
-        gamma=0.8
-
+        gamma=1.5
+        c=0.8
         if d==0:
             return 0
         robot_state_tupple=(robot_state.row,robot_state.col,robot_state.direction,robot_state.speed)
@@ -126,7 +126,7 @@ class Policy:
             if n_s_a==0:
                 Q_s_a.append(np.inf)
             else:
-                Q_s_a.append(intermediate(self.Q[robot_state_tupple[0],robot_state_tupple[1],robot_state_tupple[2],robot_state_tupple[3],iter(action_available).__next__()],N_s,n_s_a,2))
+                Q_s_a.append(intermediate(self.Q[robot_state_tupple[0],robot_state_tupple[1],robot_state_tupple[2],robot_state_tupple[3],iter(action_available).__next__()],N_s,n_s_a,c=c))
         a=np.argmax(Q_s_a)
         #采样一个sample
         next_state,error,collision=self.transition(house_map,robot_state,action_available[a])
@@ -139,7 +139,7 @@ class Policy:
         
         
     def rollout(self,house_map,robot_state,d): #d is the remaining steps for one rollout, 没有transition函数，爆栈，碰撞
-        alpha=0.9
+        alpha=0.8
 
         if d==0:
             return 0
@@ -165,37 +165,49 @@ class Policy:
     def reward_function(self,house_map,robot_state,action,next_robot_state,error,collision): #error是指他有没有不按照指令前进,collision是指过程中是否发生了碰撞
         #到达终点则有超级大reward
         reward=0.0
-
+        decoded_action=self.action_decoder(action)
         if self.goal_state.row==next_robot_state.row and self.goal_state.col==next_robot_state.col:
             if(next_robot_state.speed==0):
-                return 1000.0
+                return 2000.0
             else:
-                return 500.0
+                return 1000.0
         #先改速度，和方向，再动 
         #计算一下Manhattan距离
         next_delta_x,next_delta_y=self.goal_state.row-next_robot_state.row,self.goal_state.col-next_robot_state.col
         next_Manhattan_distance=abs(next_delta_x)+abs(next_delta_y)
+        next_Euclidean_distance=((next_delta_x)**2+(next_delta_y)**2)**0.5
         current_delta_x,current_delta_y=self.goal_state.row-robot_state.row,self.goal_state.col-robot_state.col
         current_Manhattan_distance=abs(current_delta_x)+abs(current_delta_y)
+        current_Euclidean_distance=((current_delta_x)**2+(current_delta_y)**2)**0.5
         #减小manhattan距离将会有reward
-        if next_Manhattan_distance<current_Manhattan_distance:
-            reward+=60.0*(current_Manhattan_distance-next_Manhattan_distance) #这保障了不会出现除0的情况,分母也不是0，30为超参数
+        if next_Euclidean_distance<=current_Euclidean_distance+1:
+            reward+=80.0*(current_Euclidean_distance-next_Euclidean_distance+1) #这保障了不会出现除0的情况,分母也不是0，30为超参数
             #在减小的基础上，如果加速，应该reward更大一点
             #reward+=10.0*abs(next_robot_state.speed-robot_state.speed)
             #如果距离已经很小了，在减小的基础上，那么就应该更大的reward
-            if next_Manhattan_distance<15:
+            if next_Euclidean_distance<15:
                 reward+=80.0
             #在离目标进的时候应该控制速度为1
-            if next_Manhattan_distance<20 and int(next_robot_state.speed)==1:
-                reward+=100.0
-            else:
-                reward-=50.0
+            if next_Euclidean_distance<20:
+                if robot_state.speed>1 and decoded_action[0]==-1:
+                    reward+=100.0
+                elif robot_state.speed==0 and decoded_action[0]==1:
+                    reward+=100.0
+                elif robot_state.speed==1 and decoded_action[0]==0:
+                    reward+=100.0
+                else:
+                    reward-=100.0
         #改变方向的reward或者速度的reward(走了一步所以给点reward)，我考虑给一个随机的reward，以克服我不知道reward的问题
-        reward+=30.0*random.random()
-        
+        #reward+=30.0*random.random()
+        if next_Manhattan_distance<=7:
+            #保持坐标与终点一样会有奖励
+            if robot_state.row==self.goal_state.row:
+                reward+=200.0
+            if robot_state.col==self.goal_state.col:
+                reward+=200.0
         #增大距离
         if next_Manhattan_distance>current_Manhattan_distance:
-            reward-=10.0
+            reward+=40.0
         #暂时到这里,可以接着完善
         
 
@@ -243,7 +255,7 @@ class Policy:
                 action = Action(acc=random_action[0], rot=random_action[1])
         """
         self.steps_counter+=1
-        if(self.steps_counter==12):
+        if(self.steps_counter==35):
             #清空Q和N和T
             self.Q=np.zeros((100,100,4,4,9))
             self.N=np.zeros((100,100,4,4,9))
@@ -271,8 +283,8 @@ class Policy:
                                 else:
                                     self.Transition[i,j,k,l,m]=error_prob/15 #其他状态,概率小
 
-        for i in range(80):
-            self.simulate(house_map,robot_state,12)
+        for i in range(100):
+            self.simulate(house_map,robot_state,8)
         action_available=self.action_available(robot_state)
         Q_s_a=[self.Q[robot_state.row,robot_state.col,robot_state.direction,robot_state.speed,action] for action in action_available]
         a=np.argmax(Q_s_a)
