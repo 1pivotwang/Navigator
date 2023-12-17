@@ -2,7 +2,7 @@ from grid_map_env.classes.action import Action
 from grid_map_env.utils import *
 import numpy as np
 import random
-
+#分解问题设计中间goal state？？？？
 
 class Policy:
     #members:Q(s,a) 9 actions,100*100*4*4 states(4 directions,4 speeds),100*100 space states;some are not valid
@@ -12,7 +12,7 @@ class Policy:
     pi_0=np.zeros((100,100,4,4)) #initial policy(rollout policy),can be renewed
     Transition=np.zeros((4,4,9,4,4)) #从一个（速度，方向）状态转移到另一个（速度，方向）状态的概率
     initialization=1 #用于只用一次的启动
-
+    steps_counter=0 #用于计算已经走的步数
 
     def __init__(self) -> None:
         pass
@@ -30,20 +30,18 @@ class Policy:
     def action_available(self,robot_state):
         if robot_state.speed==0:
             return [self.action_encoder(0,0),self.action_encoder(1,0),self.action_encoder(0,1),self.action_encoder(0,-1)]
-        elif robot_state.speed==3:
-            return [self.action_encoder(0,0),self.action_encoder(-1,0)]
         else:
             return [self.action_encoder(0,0),self.action_encoder(-1,0),self.action_encoder(1,0)]
     
     
-    def policy_initialization(self,house_map): #原计划是能动态更新的policy，先选一个有道理的初始policy，就算不能动态更新，也可以作为rollout policy的prefer情况（rollout并不是全随机，概率不等），是否要更新概率？？
+    def policy_initialization(self,house_map): 
         for i in range(100):
             for j in range(100):
                 delta_x,delta_y=self.goal_state.row-i,self.goal_state.col-j
                 for k in range(4):
                     for l in range(4):
                         if is_collision(house_map=house_map,robot_state=RobotState(row=i,col=j,direction=k,speed=l)):
-                            continue
+                            self.pi_0[i,j,k,l]=self.action_encoder(-1,0) #一定先要减速
                         else:
                             #依照直觉来设置，把方向调整到向着终点
                             #保守起见，速度控制到1
@@ -111,7 +109,7 @@ class Policy:
 
     #这里先实现老师给的伪代码,reward未定
     def simulate(self,house_map,robot_state,d): #d is the remaining steps for one rollout,第一个想法，不采取离散的reward，直接采取一整次rollout的reward，第二个想法，依照老师的代码，但是拟合出reward，利用差分计算出单步reward
-        gamma=0.9
+        gamma=0.8
 
         if d==0:
             return 0
@@ -141,19 +139,38 @@ class Policy:
         
         
     def rollout(self,house_map,robot_state,d): #d is the remaining steps for one rollout, 没有transition函数，爆栈，碰撞
+        alpha=0.9
+
         if d==0:
             return 0
         #根据rollout policy采样一个action,非常值得修正
-        action=self.pi_0[int(robot_state.row),int(robot_state.col),int(robot_state.direction),int(robot_state.speed)]
-        next_state,error,collision=self.transition(house_map,robot_state,action)
-        return self.reward_function(house_map,robot_state,action,next_state,error,collision)+self.rollout(house_map,next_state,d-1)
+        preferred_action=self.pi_0[int(robot_state.row),int(robot_state.col),int(robot_state.direction),int(robot_state.speed)]
+        #寻找目前可以用的action
+        action_available=self.action_available(robot_state)
+        probabilities=[]
+        for item in action_available:
+            if int(item)==int(preferred_action):
+                probabilities.append(alpha)
+            else:
+                probabilities.append((1-alpha)/(len(action_available)-1))
+        #归一化
+        probabilities=np.array(probabilities)
+        probabilities/=np.sum(probabilities)
+        a=np.random.choice(action_available,p=probabilities) #引入随机性,为什么概率有时候不是1？？？,这只可能是选中的prefered action有问题
+
+        next_state,error,collision=self.transition(house_map,robot_state,a)
+        return self.reward_function(house_map,robot_state,a,next_state,error,collision)+self.rollout(house_map,next_state,d-1)
         
         
     def reward_function(self,house_map,robot_state,action,next_robot_state,error,collision): #error是指他有没有不按照指令前进,collision是指过程中是否发生了碰撞
         #到达终点则有超级大reward
         reward=0.0
-        if self.goal_state.row==next_robot_state.row and self.goal_state.col==next_robot_state.col and next_robot_state.speed==0:
-            return 300.0
+
+        if self.goal_state.row==next_robot_state.row and self.goal_state.col==next_robot_state.col:
+            if(next_robot_state.speed==0):
+                return 1000.0
+            else:
+                return 500.0
         #先改速度，和方向，再动 
         #计算一下Manhattan距离
         next_delta_x,next_delta_y=self.goal_state.row-next_robot_state.row,self.goal_state.col-next_robot_state.col
@@ -162,24 +179,34 @@ class Policy:
         current_Manhattan_distance=abs(current_delta_x)+abs(current_delta_y)
         #减小manhattan距离将会有reward
         if next_Manhattan_distance<current_Manhattan_distance:
-            reward+=10.0*current_Manhattan_distance/(current_Manhattan_distance-next_Manhattan_distance) #这保障了不会出现除0的情况,分母也不是0，30为超参数
+            reward+=60.0*(current_Manhattan_distance-next_Manhattan_distance) #这保障了不会出现除0的情况,分母也不是0，30为超参数
             #在减小的基础上，如果加速，应该reward更大一点
-            reward+=10.0*abs(next_robot_state.speed-robot_state.speed)
+            #reward+=10.0*abs(next_robot_state.speed-robot_state.speed)
+            #如果距离已经很小了，在减小的基础上，那么就应该更大的reward
+            if next_Manhattan_distance<15:
+                reward+=80.0
+            #在离目标进的时候应该控制速度为1
+            if next_Manhattan_distance<20 and int(next_robot_state.speed)==1:
+                reward+=100.0
+            else:
+                reward-=50.0
         #改变方向的reward或者速度的reward(走了一步所以给点reward)，我考虑给一个随机的reward，以克服我不知道reward的问题
-        reward+=abs(20.0*random.random())
+        reward+=30.0*random.random()
+        
+        #增大距离
+        if next_Manhattan_distance>current_Manhattan_distance:
+            reward-=10.0
         #暂时到这里,可以接着完善
-
+        
 
 
         #截断reward
-        reward=min(reward,50)
+    
         #如果他并不是按照指令前进的，那么reward应该打折扣，以概率为折扣依据
-        if error==1:
-            alpha=0.2
-            reward*=alpha
+       
         #如果他碰撞了，那么reward更应小
         if collision==1:
-            reward*=0.1
+            reward=-150.0
         return reward
         
 
@@ -215,8 +242,37 @@ class Policy:
                 random_action = random.choice([(0, 1), (0, -1)])
                 action = Action(acc=random_action[0], rot=random_action[1])
         """
-        for i in range(100):
-            self.simulate(house_map,robot_state,50)
+        self.steps_counter+=1
+        if(self.steps_counter==12):
+            #清空Q和N和T
+            self.Q=np.zeros((100,100,4,4,9))
+            self.N=np.zeros((100,100,4,4,9))
+            self.T=[]
+            #当前state加入T
+            self.T.append((robot_state.row,robot_state.col,robot_state.direction,robot_state.speed))
+            self.steps_counter=0
+
+        if(self.initialization==1):
+            self.initialization=0
+            #初始化
+            error_prob=0.1
+            for i in range(4):
+                for j in range(4):
+                    for k in range(9):
+                        #应该去的状态
+                        decoded_action=self.action_decoder(k)
+                        v=i+decoded_action[0]
+                        v=max(min(v,3),0)
+                        d=(j+decoded_action[1])%4
+                        for l in range(4):
+                            for m in range(4):
+                                if l==v and m==d:
+                                    self.Transition[i,j,k,l,m]=1-error_prob #应该去的状态,概率大
+                                else:
+                                    self.Transition[i,j,k,l,m]=error_prob/15 #其他状态,概率小
+
+        for i in range(80):
+            self.simulate(house_map,robot_state,12)
         action_available=self.action_available(robot_state)
         Q_s_a=[self.Q[robot_state.row,robot_state.col,robot_state.direction,robot_state.speed,action] for action in action_available]
         a=np.argmax(Q_s_a)
@@ -261,10 +317,10 @@ class Policy:
         #执行模拟，先更新速度，方向
         #（先取出每一种情况的概率，如果太小了就直接忽略）
         #一共16种情况，采用同样的商和余数的编码模式
-        encoder=lambda v,d:v*4+d+1
+        encoder=lambda v,d:v*4+d
         decoder=lambda n:(n//4,n%4)
-        probabilities=[self.Transition[robot_state.speed,robot_state.direction,action,decoder(i)[0],decoder(i)[1]] for i in range(16)]
-        next_encoded_v_d=random.choice(range(16),p=probabilities) #概率生成随机状态
+        probabilities=[self.Transition[int(robot_state.speed),int(robot_state.direction),int(action),decoder(i)[0],decoder(i)[1]] for i in range(16)]
+        next_encoded_v_d=np.random.choice(range(16),p=probabilities) #概率生成随机状态
         next_v_d=decoder(next_encoded_v_d)
         intermediate_state=RobotState(robot_state.row,robot_state.col,direction=next_v_d[1],speed=next_v_d[0])
         former_intermediate_state=intermediate_state.copy() #用于回溯
@@ -319,5 +375,15 @@ class Policy:
                     intermediate_state=former_intermediate_state.copy() #回溯加撞的处理
                     break
         
+        #防止越界
+        if intermediate_state.row<0:
+            intermediate_state.row=0
+        if intermediate_state.row>99:
+            intermediate_state.row=99
+        if intermediate_state.col<0:
+            intermediate_state.col=0
+        if intermediate_state.col>99:
+            intermediate_state.col=99
+    
         next_state=intermediate_state.copy()
         return (next_state,error,collision)
