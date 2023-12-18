@@ -8,7 +8,7 @@ import json
 import gym
 import warnings
 
-MAP_NAME="Wiconisco" # Collierville, Corozal, Ihlen, Markleeville, or Wiconisco
+MAP_NAME="Ihlen" # Collierville, Corozal, Ihlen, Markleeville, or Wiconisco
 
 def run_once(map_file_path, policy, start_pos=None, goal_pos=None, store=False, store_path="~/", step_limit=1000, time_limit=1.0, headless=False):
     """
@@ -45,7 +45,6 @@ def run_once(map_file_path, policy, start_pos=None, goal_pos=None, store=False, 
     policy.policy_initialization(house_map=map)
 
     current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-
 
 
     json_dict = {}
@@ -151,3 +150,4 @@ if __name__ == "__main__":
              policy=policy,
              store=True,
              store_path=store_path,time_limit=10)
+    

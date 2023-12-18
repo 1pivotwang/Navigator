@@ -1,3 +1,6 @@
 import numpy as np
-probabilities = [0.1, 0.2, 0.3, 0.4]
-print(np.random.choice(range(4),p=probabilities))
+from queue import PriorityQueue
+a=range(0)
+for i in a:
+    print(a.__len__())
+  
