@@ -293,7 +293,7 @@ class Policy:
         
         
     def rollout(self,house_map,robot_state,d): #d is the remaining steps for one rollout, 没有transition函数，爆栈，碰撞
-        alpha=0.7
+        alpha=0.37
 
         if d==0:
             return 0
@@ -353,9 +353,9 @@ class Policy:
             #reward+=10.0*abs(next_robot_state.speed-robot_state.speed)
             #如果距离已经很小了，在减小的基础上，那么就应该更大的reward
             if next_Euclidean_distance<6:
-                reward+=80.0
+                reward+=220.0
             #在离目标进的时候应该控制速度为1
-            if next_Euclidean_distance<5:
+            if next_Euclidean_distance<4:
                 if robot_state.speed>1: #and decoded_action[0]==-1:
                     reward+=100.0
                 elif robot_state.speed==0: #and decoded_action[0]==1:
@@ -462,8 +462,8 @@ class Policy:
         self.current_goal_in_path
         self.current_position_in_path
         self.path
-        for i in range(80):
-            self.simulate(house_map,robot_state,9)
+        for i in range(100):
+            self.simulate(house_map,robot_state,8)
         action_available=self.action_available(robot_state)
         Q_s_a=[self.Q[robot_state.row,robot_state.col,robot_state.direction,robot_state.speed,action] for action in action_available]
         a=np.argmax(Q_s_a)

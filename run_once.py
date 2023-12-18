@@ -8,7 +8,7 @@ import json
 import gym
 import warnings
 
-MAP_NAME="Ihlen" # Collierville, Corozal, Ihlen, Markleeville, or Wiconisco
+MAP_NAME="Corozal" # Collierville, Corozal, Ihlen, Markleeville, or Wiconisco
 
 def run_once(map_file_path, policy, start_pos=None, goal_pos=None, store=False, store_path="~/", step_limit=1000, time_limit=1.0, headless=False):
     """
@@ -42,7 +42,7 @@ def run_once(map_file_path, policy, start_pos=None, goal_pos=None, store=False, 
 
     policy.acceptor(robot_state,RobotState(row=goal_pos[0],col=goal_pos[1],direction=0,speed=0))#我把goalpos和startpos送给了policy
     #我加的
-    policy.policy_initialization(house_map=map)
+    #policy.policy_initialization(house_map=map)
 
     current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
