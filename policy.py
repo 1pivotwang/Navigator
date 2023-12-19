@@ -2,6 +2,7 @@ from grid_map_env.classes.action import Action
 from grid_map_env.utils import *
 import numpy as np
 import random
+import datetime
 import heapq   #优先队列
 #分解问题设计中间goal state？？？？
 
@@ -20,20 +21,22 @@ class CustomPriorityQueue():
     
 class Policy:
     open_set=CustomPriorityQueue()
+    real_open_set=CustomPriorityQueue()
     #members:Q(s,a) 9 actions,100*100*4*4 states(4 directions,4 speeds),100*100 space states;some are not valid
     house_map=None
     Q=np.zeros((100,100,4,4,9)) 
     N=np.zeros((100,100,4,4,9)) #to record visited states
     T=[] #tree nodes
-    pi_0=np.zeros((100,100,4,4)) #initial policy(rollout policy),can be renewed
+    #pi_0=np.zeros((100,100,4,4)) #initial policy(rollout policy),can be renewed
     Transition=np.zeros((4,4,9,4,4)) #从一个（速度，方向）状态转移到另一个（速度，方向）状态的概率
     initialization=1 #用于只用一次的启动
     steps_counter=0 #用于计算已经走的步数
 
     path=None #用于存储A*算法的算出的路径
+    real_path=None #用于存储A*算法的算出的真正路径
     current_position_in_path=None #用于机器人在路径中的位置
     current_goal_in_path=None #用于机器人在路径中的下几个目标
-    goal_num=4 #选取最多四个目标
+    goal_num=4 #选取最多四个目标,重要参数
 
     def __init__(self) -> None:
         pass
@@ -41,7 +44,7 @@ class Policy:
     def acceptor(self,start_state,goal_state): #专门用于传入一些必要的东西
         self.start_state=start_state
         self.goal_state=goal_state
-        self.T.append((start_state.row,start_state.col,start_state.direction,start_state.speed)) #根节点不进行rollout??
+        
 
     def action_encoder(self,acc,rot): #0-8的数可以写为除以3的商和余数，我们以此来编码
         return (acc+1)*3+(rot+1)
@@ -54,6 +57,13 @@ class Policy:
     def state_decoder(self,state):
         s=int(state)
         return (s//100,s%100)
+    
+    def real_state_encoder(self,robot_state):
+        return int(robot_state.row*1600+robot_state.col*16+robot_state.direction*4+robot_state.speed)
+    
+    def real_state_decoder(self,state):
+        s=int(state)
+        return (s//1600,s%1600//16,s%1600%16//4,s%1600%16%4)
     
     def get_goal_in_path(self,house_map,robot_state): #用于获取当前的目标
         #首先是更新current_position_in_path
@@ -82,12 +92,13 @@ class Policy:
                 self.current_position_in_path-=1
             else:
                 break
-        """
+       
         #依据目前的位置，计算出目标
         if self.current_position_in_path==len(self.path)-1:
             self.current_goal_in_path=[self.current_position_in_path]
         else:
             self.current_goal_in_path=[self.path[self.current_position_in_path+1+i] for i in range(min(self.goal_num,len(self.path)-1-self.current_position_in_path))]
+        """
         Euc_distance=[]
         #直接计算到这个点的欧式距离
         for s in self.path:
@@ -105,25 +116,26 @@ class Policy:
     def get_possible_next_state(self,house_map,current_state):
         decoded_state=self.state_decoder(current_state)
         next_state=[]
-        for i in range(1,4):
+        search_range=2
+        for i in range(1,search_range):
             candidate_state=RobotState(row=decoded_state[0]+i,col=decoded_state[1],direction=0,speed=0)
             if is_collision(house_map,candidate_state):
                 break
             else:
                 next_state.append(candidate_state.row*100+candidate_state.col)
-        for i in range(1,4):
+        for i in range(1,search_range):
             candidate_state=RobotState(row=decoded_state[0]-i,col=decoded_state[1],direction=0,speed=0)
             if is_collision(house_map,candidate_state):
                 break
             else:
                 next_state.append(candidate_state.row*100+candidate_state.col)
-        for i in range(1,4):
+        for i in range(1,search_range):
             candidate_state=RobotState(row=decoded_state[0],col=decoded_state[1]+i,direction=0,speed=0)
             if is_collision(house_map,candidate_state):
                 break
             else:
                 next_state.append(candidate_state.row*100+candidate_state.col)
-        for i in range(1,4):
+        for i in range(1,search_range):
             candidate_state=RobotState(row=decoded_state[0],col=decoded_state[1]-i,direction=0,speed=0)
             if is_collision(house_map,candidate_state):
                 break
@@ -133,22 +145,62 @@ class Policy:
             next_state[i]=int(next_state[i])
         return next_state
     
+    def get_possible_next_real_state(self,house_map,current_state):
+        decoded_state=self.real_state_decoder(current_state)
+        next_real_state=[]
+        actions=self.action_available(RobotState(row=decoded_state[0],col=decoded_state[1],direction=decoded_state[2],speed=decoded_state[3]))
+        for action in actions:
+            action=self.action_decoder(action)
+            #先更新速度，方向
+            next_speed=decoded_state[3]+action[0]
+            next_speed=max(min(next_speed,3),0)
+            next_direction=(decoded_state[2]+action[1])%4
+            #再更新位置
+            if next_speed!=0:
+                if next_direction==0:
+                    next_row=decoded_state[0]
+                    next_col=decoded_state[1]-next_speed
+                elif next_direction==1:
+                    next_row=decoded_state[0]-next_speed
+                    next_col=decoded_state[1]
+                elif next_direction==2:
+                    next_row=decoded_state[0]
+                    next_col=decoded_state[1]+next_speed
+                elif next_direction==3:
+                    next_row=decoded_state[0]+next_speed
+                    next_col=decoded_state[1]
+            else:
+                next_row=decoded_state[0]
+                next_col=decoded_state[1]
+            #判断是否碰撞
+            if is_collision(house_map,RobotState(row=next_row,col=next_col,direction=next_direction,speed=next_speed)): #万一必须撞怎么办？？？
+                continue
+            else:
+                next_real_state.append(next_row*1600+next_col*16+next_direction*4+next_speed)
+        return next_real_state
+    
     def action_available(self,robot_state):
         if robot_state.speed==0:
-            return [self.action_encoder(0,0),self.action_encoder(1,0),self.action_encoder(0,1),self.action_encoder(0,-1)]
+            return [self.action_encoder(0,0),self.action_encoder(1,0),self.action_encoder(-1,0),self.action_encoder(0,1),self.action_encoder(0,-1)]
         else:
             return [self.action_encoder(0,0),self.action_encoder(-1,0),self.action_encoder(1,0)]
-    
+    #两个都很简单，也许可以优化
     def heuristic(self,state):
         decoded_state=self.state_decoder(state)
         return int(abs(decoded_state[0]-self.goal_state.row)/3.0)+int(abs(decoded_state[1]-self.goal_state.col)/3.0)
     
+    def real_heuristic(self,real_state):
+        decoded_state=self.real_state_decoder(real_state)
+        return int(abs(decoded_state[0]-self.goal_state.row)/3.0)+int(abs(decoded_state[1]-self.goal_state.col)/3.0)
+    
     def astar(self,initial_state, goal_state): #这里state是编码后的
+        #初始化 open_set
+        self.open_set=CustomPriorityQueue()
         self.open_set.put((0,int(initial_state)))
         closed_set = set()
         parents = {}  # Dictionary to store parents
         #inflated A*算法 以加速
-        inflation_index=1.2
+        inflation_index=1.8
         step=0
         while not self.open_set.empty():
             current_cost,current_state = self.open_set.get()
@@ -171,13 +223,58 @@ class Policy:
                     parents[next_state] = current_state  # Set parent for backtracking
             #减小inflation_index
             step+=1
-            if step%3==0:
+            if step%5==0:
                 step=0
                 if inflation_index>1:
                     inflation_index-=0.1
 
         return "No path found"
     
+    def real_astar(self,initial_state, goal_state):  #这里state是编码后的 goal_state是一个集合
+        #初始化 real_open_set
+        self.real_open_set=CustomPriorityQueue()
+        self.real_open_set.put((0,int(initial_state)))
+        closed_set = set()
+        g_score={}
+        g_score[initial_state]=0
+        parents = {}
+        #inflated A*算法 以加速
+        step=0
+        while not self.real_open_set.empty():
+            current_cost,current_state = self.real_open_set.get()
+
+            for goal in goal_state:
+                if current_state == goal:
+                    return self.reconstruct_real_path(parents, goal)
+            """    
+            #将open_set中的删除
+            self.real_open_set.remove(current_state)
+            
+            closed_set.add(int(current_state))
+            #问题是这个东西可以为空？？？因为碰撞
+            for next_state in self.get_possible_next_real_state(self.house_map,current_state):
+
+                if next_state in closed_set:
+                    continue
+
+                tentative_cost = current_cost + 1
+                if next_state not in self.real_open_set.queue:
+                    self.real_open_set.put( (tentative_cost + self.real_heuristic(next_state),next_state))
+                    parents[next_state] = current_state  # Set parent for backtracking
+            #减小inflation_index
+            """
+            for next_state in self.get_possible_next_real_state(self.house_map,current_state):
+                self.real_state_decoder(next_state)
+                self.real_state_decoder(current_state)
+                tentative_g_score=g_score[current_state]+1
+                if next_state not in g_score or tentative_g_score<g_score[next_state]:
+                    g_score[next_state]=tentative_g_score
+                    f_score=tentative_g_score+self.real_heuristic(next_state)
+                    parents[next_state]=current_state
+                    if next_state not in self.real_open_set.queue:
+                        self.real_open_set.put((f_score,next_state))
+
+        return "No path found"
     def reconstruct_path(self,parents, goal_state):
         path = [goal_state]
         current_state = goal_state
@@ -187,7 +284,16 @@ class Policy:
             path.append(current_state)
 
         return path[::-1]  # Reverse the path to get it from start to goal
+    
+    def reconstruct_real_path(self,parents, goal_state):
+        path = [goal_state]
+        current_state = goal_state
 
+        while current_state in parents:
+            current_state = parents[current_state]
+            path.append(current_state)
+
+        return path[::-1]
     def policy_initialization(self,house_map): 
         for i in range(100):
             for j in range(100):
@@ -297,16 +403,15 @@ class Policy:
 
         if d==0:
             return 0
+        """
         #根据rollout policy采样一个action,非常值得修正
         preferred_action=self.pi_0[int(robot_state.row),int(robot_state.col),int(robot_state.direction),int(robot_state.speed)]
         #寻找目前可以用的action
+        """
         action_available=self.action_available(robot_state)
         probabilities=[]
         for item in action_available:
-            if int(item)==int(preferred_action):
-                probabilities.append(alpha)
-            else:
-                probabilities.append((1-alpha)/(len(action_available)-1))
+            probabilities.append(1.0/len(action_available))
         #归一化
         probabilities=np.array(probabilities)
         probabilities/=np.sum(probabilities)
@@ -320,16 +425,16 @@ class Policy:
         decoded_action=self.action_decoder(action)
         #到达真终点则有超级大reward
         if next_robot_state.row==self.goal_state.row and next_robot_state.col==self.goal_state.col and next_robot_state.speed==0:
-            return 10000.0
+            return 1000.0
         #真终点附近保持速度为1有奖励
         Euclidean_distance_to_final=((next_robot_state.row-self.goal_state.row)**2+(next_robot_state.col-self.goal_state.col)**2)**0.5
         if Euclidean_distance_to_final<5:
             if next_robot_state.speed==1:
-                return 1000.0
+                return 400.0
             if robot_state.speed==0 and decoded_action[0]==1:
-                return 1000.0
+                return 400.0
             if robot_state.speed>1 and decoded_action[0]==-1:
-                return 1000.0
+                return 400.0
         
         
         reward=0.0
@@ -384,7 +489,7 @@ class Policy:
 
         #如果他碰撞了，那么reward更应小
         if collision==1:
-            reward=-350.0 #最后一个是150到250
+            reward=-300.0 #最后一个是150到250
         return reward
         
 
@@ -421,8 +526,9 @@ class Policy:
                 action = Action(acc=random_action[0], rot=random_action[1])
         """
         self.steps_counter+=1
-    
-        if(self.steps_counter==35):
+        search_depth=4
+        search_times=90
+        if(self.steps_counter==25):
             #清空Q和N和T
             self.Q=np.zeros((100,100,4,4,9))
             self.N=np.zeros((100,100,4,4,9))
@@ -434,6 +540,14 @@ class Policy:
         if(self.initialization==1):
             self.initialization=0
             #初始化
+            self.start_state=robot_state
+            #遍历地图以找出终点
+            for i in range(100):
+                for j in range(100):
+                    if house_map[i][j]==3:
+                        self.goal_state=RobotState(row=i-1,col=j,direction=0,speed=0)
+                        break
+            self.T.append((self.start_state.row,self.start_state.col,self.start_state.direction,self.start_state.speed)) #根节点不进行rollout??
             error_prob=0.1
             for i in range(4):
                 for j in range(4):
@@ -451,7 +565,11 @@ class Policy:
                                     self.Transition[i,j,k,l,m]=error_prob/15 #其他状态,概率小
             #初始化A*算法
             self.house_map=house_map
+            #计算用时
+            start=datetime.datetime.now()
             self.path=self.astar(self.state_encoder(self.start_state),self.state_encoder(self.goal_state))
+            end=datetime.datetime.now()
+            print("A*算法用时：",end-start)
             #定义一个进度，沿着这个路走的进度
             self.current_position_in_path=0
             
@@ -462,13 +580,54 @@ class Policy:
         self.current_goal_in_path
         self.current_position_in_path
         self.path
-        for i in range(100):
-            self.simulate(house_map,robot_state,8)
-        action_available=self.action_available(robot_state)
-        Q_s_a=[self.Q[robot_state.row,robot_state.col,robot_state.direction,robot_state.speed,action] for action in action_available]
-        a=np.argmax(Q_s_a)
-        action=self.action_decoder(action_available[a])
-        return Action(acc=action[0],rot=action[1])  #return the action for execution
+        #计算现在距离最终目标的距离
+        Euclidean_distance_to_final=((robot_state.row-self.goal_state.row)**2+(robot_state.col-self.goal_state.col)**2)**0.5
+       
+        #从当前状态开始计算
+        current_goal_position=self.current_goal_in_path[-1]
+        current_goal_position=self.state_decoder(current_goal_position)
+        current_goal_state_set=[]
+        for i in range(4):
+            for j in range(4):
+                current_goal_state=RobotState(row=current_goal_position[0],col=current_goal_position[1],direction=i,speed=j)
+                current_goal_state_set.append(self.real_state_encoder(current_goal_state))
+        #用A*算法计算出一条路径
+        
+        #分两种情况，第一个是距离很远的时候，采用A*算法
+        if(Euclidean_distance_to_final>6):
+            self.real_path=self.real_astar(self.real_state_encoder(robot_state),current_goal_state_set)
+        else:
+            self.real_path=self.real_astar(self.real_state_encoder(robot_state),[self.real_state_encoder(self.goal_state)])
+        
+        if self.real_path=="No path found" or len(self.real_path)==1:
+            #采用mcts算法
+            for i in range(search_times):
+                self.simulate(house_map,robot_state,search_depth)
+            action_available=self.action_available(robot_state)
+            Q_s_a=[self.Q[robot_state.row,robot_state.col,robot_state.direction,robot_state.speed,action] for action in action_available]
+            a=np.argmax(Q_s_a)
+            action=self.action_decoder(action_available[a])
+            return Action(acc=action[0],rot=action[1])
+        
+        next_state=self.real_state_decoder(self.real_path[1])
+        #判断这是哪个动作
+        if next_state[3]!=robot_state.speed:
+            acc=next_state[3]-robot_state.speed
+            rot=0
+        else:
+            if next_state[2]==robot_state.direction:
+                acc=0
+                rot=0
+            else:
+                acc=0
+                if next_state[2]==3 and robot_state.direction==0:
+                    rot=-1
+                elif next_state[2]==0 and robot_state.direction==3:
+                    rot=1
+                else:
+                    rot=next_state[2]-robot_state.direction
+        action=Action(acc=acc,rot=rot)
+        return Action(acc=action.acc,rot=action.rot)  #return the action for execution
     
     def transition(self,house_map,robot_state, action): #尽可能模拟出来的step函数
         '''
