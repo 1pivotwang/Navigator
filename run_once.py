@@ -146,5 +146,5 @@ if __name__ == "__main__":
     run_once(map_file_path=map_file_path,
              policy=policy,
              store=True,
-             store_path=store_path,time_limit=100)
+             store_path=store_path)
     

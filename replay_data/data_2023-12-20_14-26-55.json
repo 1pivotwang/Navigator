@@ -1,0 +1,1 @@
+{"map_file_path": "c:\\wang\\alpha_robot\\grid_maps\\Ihlen\\occ_grid_small.txt", "start_pos": [30, 93], "goal_pos": [34, 5], "robot_rows": [30, 30, 31, 32], "robot_cols": [93, 93, 93, 93], "robot_speeds": [0, 0, 1, 1], "robot_directions": [0, 3, 3, 3], "action_accs": [0, 1, 0], "action_rots": [-1, 0, -1], "steps": 3, "is_goal": false}
