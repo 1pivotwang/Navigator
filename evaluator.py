@@ -8,7 +8,7 @@ from grid_map_env.utils import sample_start_and_goal
 from run_once import run_once
 
 
-TASK_NUM = 2  # The number of tasks for each map
+TASK_NUM = 3  # The number of tasks for each map
 RUN_TIME = 5  # The number of times to run each task
 STEP_LIMIT = 1000  # The maximum number of steps allowed for each run
 TIME_LIMIT = 1.0  # The maximum thinking time in seconds for each step

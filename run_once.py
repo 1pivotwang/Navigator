@@ -8,7 +8,7 @@ import json
 import gym
 import warnings
 
-MAP_NAME="Ihlen" # Collierville, Corozal, Ihlen, Markleeville, or Wiconisco
+MAP_NAME="Collierville" # Collierville, Corozal, Ihlen, Markleeville, or Wiconisco
 
 def run_once(map_file_path, policy, start_pos=None, goal_pos=None, store=False, store_path="~/", step_limit=1000, time_limit=1.0, headless=False):
     """
@@ -17,6 +17,8 @@ def run_once(map_file_path, policy, start_pos=None, goal_pos=None, store=False, 
 
     if start_pos == None or goal_pos == None:
         start_pos, goal_pos = sample_start_and_goal(map_file_path)
+        start_pos=[67, 28]
+        goal_pos=[12, 67]
 
     
 

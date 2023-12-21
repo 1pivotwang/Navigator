@@ -65,8 +65,123 @@ class Policy:
         s=int(state)
         return (s//1600,s%1600//16,s%1600%16//4,s%1600%16%4)
     
+    def path_mender(self,house_map,robot_state):
+        #根据现有的信息修正path,主要靠枚举
+        #记录现在的前进方向
+        turning_point_one=0
+        turning_point_two=None
+        turning_point_three=None
+        turning_point_four=None
+        direction_one=None
+        direction_two=None
+        for i in range(turning_point_one,len(self.path)):
+            if turning_point_one==i:
+                continue
+            if(direction_one==None):
+                direction_one=tuple(a-b for a,b in zip(self.state_decoder(self.path[i]),self.state_decoder(self.path[i-1])))
+                continue
+            else:
+                direction_two=tuple(a-b for a,b in zip(self.state_decoder(self.path[i]),self.state_decoder(self.path[i-1])))
+                #判断是否出现直角
+                if direction_one[0]*direction_two[0]+direction_one[1]*direction_two[1]==0:
+                    if(turning_point_two==None):
+                        turning_point_two=i-1
+                        direction_one=direction_two
+                        direction_two=None
+                        continue
+                    if(turning_point_three==None):
+                        #计算点积
+                        vec1=tuple(a-b for a,b in zip(self.state_decoder(self.path[turning_point_two]),self.state_decoder(self.path[turning_point_one])))
+                        vec2=tuple(a-b for a,b in zip(self.state_decoder(self.path[i]),self.state_decoder(self.path[i-1])))
+                        dot_product=vec1[0]*vec2[0]+vec1[1]*vec2[1]
+                        if dot_product>0:
+                            turning_point_three=i-1
+                            direction_one=tuple(a-b for a,b in zip(self.state_decoder(self.path[i]),self.state_decoder(self.path[i-1])))
+                            direction_two=None
+                            continue
+                        else:
+                            #从头再来
+                            turning_point_one=i
+                            turning_point_two=None
+                            turning_point_three=None
+                            turning_point_four=None
+                            direction_one=None
+                            direction_two=None
+                            continue
+                    if(turning_point_four==None):
+                        #计算点积
+                        vec1=tuple(a-b for a,b in zip(self.state_decoder(self.path[turning_point_three]),self.state_decoder(self.path[turning_point_two])))
+                        vec2=tuple(a-b for a,b in zip(self.state_decoder(self.path[i]),self.state_decoder(self.path[i-1])))
+                        dot_product=vec1[0]*vec2[0]+vec1[1]*vec2[1]
+                        if dot_product>0: #出现阶梯，也许可以优化
+                            #优化
+                            turning_point_four=i-1
+                            #检查有没有障碍
+                            possible=1
+                            point_two=self.state_decoder(self.path[turning_point_two])
+                            point_three=self.state_decoder(self.path[turning_point_three])
+                            point_four=self.state_decoder(self.path[turning_point_four])
+                            if point_two[0]<point_four[0]:
+                                for row in range(point_two[0],point_four[0]+1):
+                                    if is_collision(house_map,RobotState(row=row,col=point_two[1],direction=0,speed=0)) or is_collision(house_map,RobotState(row=row,col=point_four[1],direction=0,speed=0)):
+                                        possible=0
+                                        break
+                            else:
+                                for row in range(point_four[0],point_two[0]+1):
+                                    if is_collision(house_map,RobotState(row=row,col=point_two[1],direction=0,speed=0)) or is_collision(house_map,RobotState(row=row,col=point_four[1],direction=0,speed=0)):
+                                        possible=0
+                                        break 
+                            
+                            if point_two[1]<point_four[1]:
+                                for col in range(point_two[1],point_four[1]+1):
+                                    if is_collision(house_map,RobotState(row=point_two[0],col=col,direction=0,speed=0)) or is_collision(house_map,RobotState(row=point_four[0],col=col,direction=0,speed=0)):
+                                        possible=0
+                                        break
+                            else:
+                                for col in range(point_four[1],point_two[1]+1):
+                                    if is_collision(house_map,RobotState(row=point_two[0],col=col,direction=0,speed=0)) or is_collision(house_map,RobotState(row=point_four[0],col=col,direction=0,speed=0)):
+                                        possible=0
+                                        break
+                            if possible==0:
+                                #从头再来
+                                turning_point_one=i
+                                turning_point_two=None
+                                turning_point_three=None
+                                turning_point_four=None
+                                direction_one=None
+                                direction_two=None
+                                continue
+                            else:
+                                #优化
+                                slice_one=self.path[0:turning_point_two+1]
+                                slice_two=self.path[turning_point_two+1:turning_point_three+1]
+                                slice_three=self.path[turning_point_three+1:turning_point_four+1]
+                                slice_four=self.path[turning_point_four+1:]
+                                #重新组合,按照one，three，two，four的顺序
+                                self.path=slice_one+slice_three+slice_two+slice_four
+                                turning_point_one=i-1
+                                turning_point_two=None
+                                turning_point_three=None
+                                turning_point_four=None
+                                direction_one=None
+                                direction_two=None
+                                continue
+                        else: #从头再来
+                            turning_point_one=i
+                            turning_point_two=None
+                            turning_point_three=None
+                            turning_point_four=None
+                            direction_one=None
+                            direction_two=None
+                            continue
+
+                        
+
+
+
     def get_goal_in_path(self,house_map,robot_state): #用于获取当前的目标
         #首先是更新current_position_in_path
+        radius=8
         """
         while True:
             current_forward_vector=None
@@ -110,13 +225,20 @@ class Policy:
         if self.current_position_in_path==len(self.path)-1:
             self.current_goal_in_path=[self.current_position_in_path]
         else:
-            self.current_goal_in_path=[self.path[self.current_position_in_path+1+i] for i in range(min(self.goal_num,len(self.path)-1-self.current_position_in_path))]
+            f=lambda x,y:((x[0]-y[0])**2+(x[1]-y[1])**2)**0.5
+            Euc_distance_to_projection=[f(self.state_decoder(self.path[i]),self.state_decoder(self.path[self.current_position_in_path])) for i in range(self.current_position_in_path+1,len(self.path))]
+            for i in range(self.current_position_in_path+1,len(self.path)):
+                self.current_goal_in_path=[self.path[i]]
+                if Euc_distance_to_projection[i-1-self.current_position_in_path]>radius:
+                    self.current_goal_in_path=[self.path[i]]
+                    break
+            #self.current_goal_in_path=[self.path[self.current_position_in_path+1+i] for i in range(min(self.goal_num,len(self.path)-1-self.current_position_in_path))]
 
 
     def get_possible_next_state(self,house_map,current_state):
         decoded_state=self.state_decoder(current_state)
         next_state=[]
-        search_range=3 #让他优先搜最远的
+        search_range=2 #让他优先搜最远的
         for i in range(1,search_range).__reversed__():
             candidate_state=RobotState(row=decoded_state[0]+i,col=decoded_state[1],direction=0,speed=0)
             if is_collision(house_map,candidate_state):
@@ -188,24 +310,20 @@ class Policy:
     #两个都很简单，也许可以优化
     def heuristic(self,state):
         decoded_state=self.state_decoder(state)
-        return abs(decoded_state[0]-self.goal_state.row)/3.0+abs(decoded_state[1]-self.goal_state.col)/3.0    
-    def real_heuristic(self,real_state):
-        
-        decoded_state=self.real_state_decoder(real_state)
-        h=abs(decoded_state[0]-self.goal_state.row)/3.0+abs(decoded_state[1]-self.goal_state.col)/3.0
-        
-        decoded_state=self.real_state_decoder(real_state)
-        #对方向进行惩罚
-    
-        #计算目标的方向
-    
-        if self.Euclidean_distance_to_final<7:
-            current_goal=(self.goal_state.row,self.goal_state.col)
+        delta_row=abs(self.goal_state.row-decoded_state[0])
+        delta_col=abs(self.goal_state.col-decoded_state[1])
+        #优先搜长的边
+        if delta_row!=0 and delta_col!=0:
+            alpha=2.0*delta_row/(delta_row+delta_col)
+            beta=2.0*delta_col/(delta_row+delta_col)
         else:
-            current_goal=self.real_state_decoder(self.current_goal_in_path[-1])
-        #方向如果不朝着目标，就得加大惩罚
+            alpha=1.0
+            beta=1.0
+        h=alpha*abs(delta_row)+beta*abs(delta_col)
+        current_goal=(self.goal_state.row,self.goal_state.col)
         delta_row=current_goal[0]-decoded_state[0]
         delta_col=current_goal[1]-decoded_state[1]
+        
         if self.robot_state.direction==0:
             if delta_col<=0:
                 return h
@@ -219,7 +337,44 @@ class Policy:
             if delta_row>=0:
                 return h
         h+=1.0
+        return h 
+    def real_heuristic(self,real_state):
         
+        decoded_state=self.real_state_decoder(real_state)
+        h=abs(decoded_state[0]-self.goal_state.row)/3.0+abs(decoded_state[1]-self.goal_state.col)/3.0
+        #对方向进行惩罚
+        return h
+        #计算目标的方向
+        if self.Euclidean_distance_to_final<8:
+            current_goal=(self.goal_state.row,self.goal_state.col)
+        else:
+            current_goal=self.real_state_decoder(self.current_goal_in_path[-1])
+        #方向如果不朝着目标，就得加大惩罚
+        delta_row=abs(current_goal[0]-decoded_state[0])
+        delta_col=abs(current_goal[1]-decoded_state[1])
+        if delta_row==0 and delta_col==0:
+            return 0
+        else:
+            if delta_row!=0 and delta_col!=0:
+                alpha=0.3*delta_row/(delta_row+delta_col)
+                beta=0.3*delta_col/(delta_row+delta_col)
+            else:
+                alpha=1.0
+                beta=1.0
+            h+=alpha*abs(delta_row)+beta*abs(delta_col)
+
+        if self.robot_state.direction==0:
+            if delta_col<=0:
+                return h
+        if self.robot_state.direction==1:
+            if delta_row<=0:
+                return h
+        if self.robot_state.direction==2:
+            if delta_col>=0:
+                return h
+        if self.robot_state.direction==3:
+            if delta_row>=0:
+                return h
         return h
     
     def astar(self,initial_state, goal_state): #这里state是编码后的
@@ -263,6 +418,7 @@ class Policy:
     
     def real_astar(self,initial_state, goal_state):  #这里state是编码后的 goal_state是一个集合
         #初始化 real_open_set
+        real_astar_limit=0.99
         self.real_open_set=CustomPriorityQueue()
         self.real_open_set.put((0,int(initial_state)))
         closed_set = set()
@@ -273,7 +429,9 @@ class Policy:
         step=0
         while not self.real_open_set.empty():
             current_cost,current_state = self.real_open_set.get()
-
+            self.real_astar_now=datetime.datetime.now() #记录时间
+            if self.real_astar_now-self.start_time>datetime.timedelta(seconds=real_astar_limit):
+                return "No path found"
             for goal in goal_state:
                 if current_state == goal:
                     return self.reconstruct_real_path(parents, goal)
@@ -600,10 +758,11 @@ class Policy:
             #初始化A*算法
             self.house_map=house_map
             #计算用时
-            start=datetime.datetime.now()
+            self.start_time=datetime.datetime.now()
             self.path=self.astar(self.state_encoder(self.start_state),self.state_encoder(self.goal_state))
             end=datetime.datetime.now()
-            print("A*算法用时：",end-start)
+            print("A*算法用时：",end-self.start_time) 
+            #self.path_mender(house_map,robot_state)
             #定义一个进度，沿着这个路走的进度
             self.current_position_in_path=0
             
@@ -611,12 +770,12 @@ class Policy:
 
         self.Euclidean_distance_to_final=((robot_state.row-self.goal_state.row)**2+(robot_state.col-self.goal_state.col)**2)**0.5
         
-        if self.steps_counter==20 and self.Euclidean_distance_to_final>10:
+        
+        if self.steps_counter==14 and self.Euclidean_distance_to_final>10:
             #重新计算一遍路径
             self.path=self.astar(self.state_encoder(self.start_state),self.state_encoder(self.goal_state))
             self.current_position_in_path=0
             self.steps_counter=0
-        
 
         #先更新一下当前的目标
         self.get_goal_in_path(house_map,robot_state)
@@ -638,22 +797,93 @@ class Policy:
         #用A*算法计算出一条路径
         
         #分两种情况，第一个是距离很远的时候，采用A*算法
-        if(self.Euclidean_distance_to_final>7):
+        if(self.Euclidean_distance_to_final>8):
+            #记录时间
+            self.start_time=datetime.datetime.now()
             self.real_path=self.real_astar(self.real_state_encoder(robot_state),current_goal_state_set)
         else:
             #一共4个最后终点态
+            self.start_time=datetime.datetime.now()
             row,col=self.goal_state.row,self.goal_state.col
             final=[row*1600+col*16+i*4+0 for i in range(4)]
             self.real_path=self.real_astar(self.real_state_encoder(robot_state),final)
         
-        if self.real_path=="No path found" or len(self.real_path)==1:
+        if self.real_path=="No path found" or len(self.real_path)==1: #no path 代表超时间了
             #采用mcts算法
+            print("超时")
+            """
             for i in range(search_times):
                 self.simulate(house_map,robot_state,search_depth)
             action_available=self.action_available(robot_state)
             Q_s_a=[self.Q[robot_state.row,robot_state.col,robot_state.direction,robot_state.speed,action] for action in action_available]
             a=np.argmax(Q_s_a)
             action=self.action_decoder(action_available[a])
+            """
+            #采用简单policy
+            #判断目前位置与目标的位置关系和方向区别,走最长的那条路
+            wrong_direction=1
+            current_goal_position=self.current_goal_in_path[-1]
+            current_goal_position=self.state_decoder(current_goal_position)
+            delta_row=current_goal_position[0]-robot_state.row
+            delta_col=current_goal_position[1]-robot_state.col
+            direction_one=0
+            direction_two=0
+            if abs(delta_row)>=abs(delta_col):
+                #先走row
+                if robot_state.direction==1 and delta_row<0:
+                    wrong_direction=0 
+                    direction_one=1
+                if robot_state.direction==3 and delta_row>0:
+                    wrong_direction=0
+                    direction_one=3
+                #先走col
+                if robot_state.direction==0 and delta_col<0:
+                    wrong_direction=0
+                    direction_two=0
+                if robot_state.direction==2 and delta_col>0:
+                    wrong_direction=0
+                    direction_two=2
+            else:
+                if robot_state.direction==1 and delta_row<0:
+                    wrong_direction=0 
+                    direction_two=1
+                if robot_state.direction==3 and delta_row>0:
+                    wrong_direction=0
+                    direction_two=3
+                #先走col
+                if robot_state.direction==0 and delta_col<0:
+                    wrong_direction=0
+                    direction_one=0
+                if robot_state.direction==2 and delta_col>0:
+                    wrong_direction=0
+                    direction_one=2
+            
+            if wrong_direction:
+                if robot_state.speed==0: #先转向到one,如果one前面有墙，就转向two
+                    action=(0,1)
+                else: #先减速
+                    action=(-1,0)
+            else: #加速
+                #但是如果前面是墙，需要转到另一个方向
+                if robot_state.direction==0:
+                    next_position=[robot_state.row,robot_state.col-robot_state.speed]
+                elif robot_state.direction==1:
+                    next_position=[robot_state.row-robot_state.speed,robot_state.col]
+                elif robot_state.direction==2:
+                    next_position=[robot_state.row,robot_state.col+robot_state.speed]
+                elif robot_state.direction==3:
+                    next_position=[robot_state.row+robot_state.speed,robot_state.col]
+                if robot_state.direction==direction_one:
+                    #检测一下撞墙的情况
+                    if is_collision(house_map,RobotState(row=next_position[0],col=next_position[1],direction=robot_state.direction,speed=robot_state.speed)): #排除掉direction_one
+                        if robot_state.speed==0:
+                            action=(0,1)
+                        else:
+                            action=(-1,0)
+                    else:
+                        action=(1,0)
+                else:
+                    action=(1,0)
             return Action(acc=action[0],rot=action[1])
         
 
