@@ -343,26 +343,17 @@ class Policy:
         decoded_state=self.real_state_decoder(real_state)
         h=abs(decoded_state[0]-self.goal_state.row)/3.0+abs(decoded_state[1]-self.goal_state.col)/3.0
         #对方向进行惩罚
-        return h
+    
         #计算目标的方向
-        if self.Euclidean_distance_to_final<8:
+        
+        if self.Euclidean_distance_to_final<7:
             current_goal=(self.goal_state.row,self.goal_state.col)
         else:
             current_goal=self.real_state_decoder(self.current_goal_in_path[-1])
         #方向如果不朝着目标，就得加大惩罚
-        delta_row=abs(current_goal[0]-decoded_state[0])
-        delta_col=abs(current_goal[1]-decoded_state[1])
-        if delta_row==0 and delta_col==0:
-            return 0
-        else:
-            if delta_row!=0 and delta_col!=0:
-                alpha=0.3*delta_row/(delta_row+delta_col)
-                beta=0.3*delta_col/(delta_row+delta_col)
-            else:
-                alpha=1.0
-                beta=1.0
-            h+=alpha*abs(delta_row)+beta*abs(delta_col)
-
+        delta_row=current_goal[0]-decoded_state[0]
+        delta_col=current_goal[1]-decoded_state[1]
+        
         if self.robot_state.direction==0:
             if delta_col<=0:
                 return h
@@ -375,6 +366,7 @@ class Policy:
         if self.robot_state.direction==3:
             if delta_row>=0:
                 return h
+        h+=1.0
         return h
     
     def astar(self,initial_state, goal_state): #这里state是编码后的
@@ -718,6 +710,7 @@ class Policy:
         search_depth=4
         search_times=90
         self.robot_state=robot_state
+        self.start_time=datetime.datetime.now()
         """
         if(self.steps_counter==25):
             #清空Q和N和T
@@ -739,6 +732,7 @@ class Policy:
                     if house_map[i][j]==3:
                         self.goal_state=RobotState(row=i-1,col=j,direction=0,speed=0)
                         break
+            """
             self.T.append((self.start_state.row,self.start_state.col,self.start_state.direction,self.start_state.speed)) #根节点不进行rollout??
             error_prob=0.1
             for i in range(4):
@@ -755,6 +749,7 @@ class Policy:
                                     self.Transition[i,j,k,l,m]=1-error_prob #应该去的状态,概率大
                                 else:
                                     self.Transition[i,j,k,l,m]=error_prob/15 #其他状态,概率小
+            """
             #初始化A*算法
             self.house_map=house_map
             #计算用时
@@ -771,13 +766,82 @@ class Policy:
         self.Euclidean_distance_to_final=((robot_state.row-self.goal_state.row)**2+(robot_state.col-self.goal_state.col)**2)**0.5
         
         
-        if self.steps_counter==14 and self.Euclidean_distance_to_final>10:
+        if self.steps_counter==20 and self.Euclidean_distance_to_final>10:
             #重新计算一遍路径
             self.path=self.astar(self.state_encoder(self.start_state),self.state_encoder(self.goal_state))
             self.current_position_in_path=0
             self.steps_counter=0
 
         #先更新一下当前的目标
+        if self.path=="No path found":
+            #先执行简单policy
+            wrong_direction=1
+            current_goal_position=(self.goal_state.row,self.goal_state.col)
+            delta_row=current_goal_position[0]-robot_state.row
+            delta_col=current_goal_position[1]-robot_state.col
+            direction_one=0
+            direction_two=0
+            if abs(delta_row)>=abs(delta_col):
+                #先走row
+                if robot_state.direction==1 and delta_row<0:
+                    wrong_direction=0 
+                    direction_one=1
+                if robot_state.direction==3 and delta_row>0:
+                    wrong_direction=0
+                    direction_one=3
+                #先走col
+                if robot_state.direction==0 and delta_col<0:
+                    wrong_direction=0
+                    direction_two=0
+                if robot_state.direction==2 and delta_col>0:
+                    wrong_direction=0
+                    direction_two=2
+            else:
+                if robot_state.direction==1 and delta_row<0:
+                    wrong_direction=0 
+                    direction_two=1
+                if robot_state.direction==3 and delta_row>0:
+                    wrong_direction=0
+                    direction_two=3
+                #先走col
+                if robot_state.direction==0 and delta_col<0:
+                    wrong_direction=0
+                    direction_one=0
+                if robot_state.direction==2 and delta_col>0:
+                    wrong_direction=0
+                    direction_one=2
+            
+            if wrong_direction:
+                if robot_state.speed==0: #先转向到one,如果one前面有墙，就转向two
+                    action=(0,1)
+                else: #先减速
+                    action=(-1,0)
+            else: #加速
+                #但是如果前面是墙，需要转到另一个方向
+                if robot_state.direction==0:
+                    next_position=[robot_state.row,robot_state.col-robot_state.speed]
+                elif robot_state.direction==1:
+                    next_position=[robot_state.row-robot_state.speed,robot_state.col]
+                elif robot_state.direction==2:
+                    next_position=[robot_state.row,robot_state.col+robot_state.speed]
+                elif robot_state.direction==3:
+                    next_position=[robot_state.row+robot_state.speed,robot_state.col]
+                if robot_state.direction==direction_one:
+                    #检测一下撞墙的情况
+                    if is_collision(house_map,RobotState(row=next_position[0],col=next_position[1],direction=robot_state.direction,speed=robot_state.speed)): #排除掉direction_one
+                        if robot_state.speed==0:
+                            action=(0,1)
+                        else:
+                            action=(-1,0)
+                    else:
+                        action=(1,0)
+                else:
+                    action=(1,0)
+            
+            self.initialization=1
+            return Action(acc=action[0],rot=action[1])
+            
+
         self.get_goal_in_path(house_map,robot_state)
         self.current_goal_in_path
         self.current_position_in_path
@@ -799,17 +863,17 @@ class Policy:
         #分两种情况，第一个是距离很远的时候，采用A*算法
         if(self.Euclidean_distance_to_final>8):
             #记录时间
-            self.start_time=datetime.datetime.now()
             self.real_path=self.real_astar(self.real_state_encoder(robot_state),current_goal_state_set)
         else:
             #一共4个最后终点态
-            self.start_time=datetime.datetime.now()
             row,col=self.goal_state.row,self.goal_state.col
             final=[row*1600+col*16+i*4+0 for i in range(4)]
             self.real_path=self.real_astar(self.real_state_encoder(robot_state),final)
         
         if self.real_path=="No path found" or len(self.real_path)==1: #no path 代表超时间了
             #采用mcts算法
+            now=datetime.datetime.now()
+            print("现在时间：",now-self.start_time)
             print("超时")
             """
             for i in range(search_times):

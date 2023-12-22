@@ -8,8 +8,8 @@ from grid_map_env.utils import sample_start_and_goal
 from run_once import run_once
 
 
-TASK_NUM = 3  # The number of tasks for each map
-RUN_TIME = 5  # The number of times to run each task
+TASK_NUM = 2  # The number of tasks for each map
+RUN_TIME = 10  # The number of times to run each task
 STEP_LIMIT = 1000  # The maximum number of steps allowed for each run
 TIME_LIMIT = 1.0  # The maximum thinking time in seconds for each step
 
@@ -36,7 +36,7 @@ def get_optimal_steps(start_pos, goal_pos):
     """
 
     row_length = abs(start_pos[1]-goal_pos[1])
-    col_length = abs(start_pos[0]-goal_pos[1])
+    col_length = abs(start_pos[0]-goal_pos[0])
 
     acc_length = 1+2 # length for accelerating to max speed
 
